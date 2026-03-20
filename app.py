@@ -11,6 +11,9 @@ import streamlit as st
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "modelo_risco_defasagem_pipeline.joblib"
 THRESHOLD_PATH = BASE_DIR / "threshold_risco_defasagem.json"
+FILE_2022 = BASE_DIR / "pede_2022_tratado.csv"
+FILE_2023 = BASE_DIR / "pede_2023_tratado.csv"
+FILE_2024 = BASE_DIR / "pede_2024_tratado.csv"
 
 
 @st.cache_resource(show_spinner=False)
@@ -302,6 +305,235 @@ def get_shap_explanation(model, input_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+@st.cache_data(show_spinner=False)
+def load_base_dados() -> Dict[int, pd.DataFrame]:
+    if not FILE_2022.exists() or not FILE_2023.exists() or not FILE_2024.exists():
+        raise FileNotFoundError("Arquivos de base (2022/2023/2024) não encontrados na raiz do projeto.")
+    return {
+        2022: pd.read_csv(FILE_2022),
+        2023: pd.read_csv(FILE_2023),
+        2024: pd.read_csv(FILE_2024),
+    }
+
+
+def to_numeric_safe(df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
+    out = df.copy()
+    for c in columns:
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c].astype(str).str.replace(",", ".", regex=False), errors="coerce")
+    return out
+
+
+def prepare_analytics_data(raw: Dict[int, pd.DataFrame]) -> Dict[int, pd.DataFrame]:
+    numeric_cols = ["INDE", "IDA", "IEG", "IAA", "IPS", "IPP", "IPV", "IAN", "Defasagem", "Mat", "Por", "Ing"]
+    prepared: Dict[int, pd.DataFrame] = {}
+    for ano, df in raw.items():
+        dfx = to_numeric_safe(df, numeric_cols)
+        dfx["Ano"] = ano
+        prepared[ano] = dfx
+    return prepared
+
+
+def render_visao_geral(dfs: Dict[int, pd.DataFrame]):
+    st.header("Análise de Dados de Performance Estudantil")
+    st.subheader("Bem-vindo(a) à Análise de Dados da Passos Mágicos")
+    st.write(
+        "Este dashboard explora padrões de desempenho estudantil, engajamento, autoavaliação e "
+        "aspectos psicossociais/psicopedagógicos para apoiar decisões de intervenção."
+    )
+
+    df24 = dfs[2024]
+    inde24 = df24["INDE"].dropna()
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Média INDE 2024", f"{inde24.mean():.2f}" if not inde24.empty else "N/D")
+    col2.metric("Desvio padrão INDE 2024", f"{inde24.std():.2f}" if not inde24.empty else "N/D")
+    col3.metric("Alunos 2024", f"{len(df24)}")
+
+    st.markdown("### Prévia dos dados (2024)")
+    cols_preview = [c for c in ["RA", "INDE", "IDA", "IEG", "IAA", "IPS", "IPP", "IPV", "IAN", "Fase_Ideal"] if c in df24.columns]
+    st.dataframe(df24[cols_preview].head(5), use_container_width=True)
+
+
+def render_q1_ian(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 1: Adequação do nível (IAN)")
+    st.caption("Qual é o perfil geral de defasagem dos alunos (IAN) e como ele evolui?")
+
+    medias = []
+    for ano, df in dfs.items():
+        if "IAN" in df.columns:
+            medias.append({"Ano": ano, "IAN_medio": df["IAN"].mean()})
+    if medias:
+        st.line_chart(pd.DataFrame(medias).set_index("Ano"))
+
+    df24 = dfs[2024]
+    if "IAN" in df24.columns:
+        bins = [-np.inf, 5, 7, np.inf]
+        labels = ["Severa (<=5)", "Moderada (5-7]", "Adequada (>7)"]
+        faixa = pd.cut(df24["IAN"], bins=bins, labels=labels)
+        dist = faixa.value_counts().reindex(labels)
+        st.bar_chart(dist)
+        st.write("Distribuição de defasagem (IAN) em 2024.")
+
+
+def render_q2_ida(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 2: Desempenho acadêmico (IDA)")
+    st.caption("O desempenho acadêmico médio (IDA) está melhorando, estagnado ou caindo?")
+
+    data = []
+    for ano, df in dfs.items():
+        data.append({"Ano": ano, "IDA_medio": df["IDA"].mean(), "INDE_medio": df["INDE"].mean()})
+    evol = pd.DataFrame(data).set_index("Ano")
+    st.line_chart(evol)
+    st.dataframe(pd.DataFrame(data), use_container_width=True)
+
+
+def render_q3_ieg(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 3: Engajamento nas atividades (IEG)")
+    st.caption("O IEG tem relação com IDA e IPV?")
+
+    df = dfs[2023].copy()
+    cols = [c for c in ["IEG", "IDA", "IPV"] if c in df.columns]
+    if len(cols) >= 2:
+        corr = df[cols].corr(numeric_only=True)
+        st.write("Correlação entre indicadores (2023):")
+        st.dataframe(corr, use_container_width=True)
+    if all(c in df.columns for c in ["IEG", "IDA"]):
+        st.scatter_chart(df[["IEG", "IDA"]].dropna(), x="IEG", y="IDA")
+    if all(c in df.columns for c in ["IEG", "IPV"]):
+        st.scatter_chart(df[["IEG", "IPV"]].dropna(), x="IEG", y="IPV")
+
+
+def render_q4_iaa(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 4: Autoavaliação (IAA)")
+    st.caption("As percepções dos alunos sobre si mesmos são coerentes com desempenho e engajamento?")
+    df = dfs[2023].copy()
+    if all(c in df.columns for c in ["IAA", "IDA", "IEG"]):
+        st.scatter_chart(df[["IAA", "IDA"]].dropna(), x="IAA", y="IDA")
+        st.scatter_chart(df[["IAA", "IEG"]].dropna(), x="IAA", y="IEG")
+        st.write("Regra simples: distância entre IAA e IDA indica potencial super/subestimação.")
+
+
+def render_q5_ips(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 5: Aspectos Psicossociais (IPS)")
+    st.caption("Há padrões de IPS que antecedem quedas de desempenho?")
+
+    d23 = dfs[2023][["RA", "INDE", "IPS"]].rename(columns={"INDE": "INDE_2023", "IPS": "IPS_2023"})
+    d24 = dfs[2024][["RA", "INDE"]].rename(columns={"INDE": "INDE_2024"})
+    m = d23.merge(d24, on="RA", how="inner")
+    m["delta_INDE_24_23"] = m["INDE_2024"] - m["INDE_2023"]
+    st.scatter_chart(m[["IPS_2023", "delta_INDE_24_23"]].dropna(), x="IPS_2023", y="delta_INDE_24_23")
+    st.write(f"Correlação IPS_2023 vs ΔINDE(24-23): {m[['IPS_2023','delta_INDE_24_23']].corr().iloc[0,1]:.3f}")
+
+
+def render_q6_ipp(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 6: Aspectos Psicopedagógicos (IPP)")
+    st.caption("IPP confirma ou contradiz a defasagem identificada por IAN?")
+    df = dfs[2023]
+    if all(c in df.columns for c in ["IPP", "IAN"]):
+        st.scatter_chart(df[["IPP", "IAN"]].dropna(), x="IPP", y="IAN")
+        st.write(f"Correlação IPP vs IAN (2023): {df[['IPP','IAN']].corr().iloc[0,1]:.3f}")
+
+
+def render_q7_ipv(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 7: Ponto de Virada (IPV)")
+    st.caption("Quais indicadores mais se relacionam ao IPV?")
+    df = dfs[2023]
+    cols = [c for c in ["IDA", "IEG", "IPS", "IAA", "IPP", "IPV"] if c in df.columns]
+    if len(cols) > 1:
+        corr = df[cols].corr(numeric_only=True)[["IPV"]].drop(index="IPV", errors="ignore").sort_values("IPV", ascending=False)
+        st.dataframe(corr, use_container_width=True)
+    st.write("Simulação rápida de tendência de IPV:")
+    ida = st.slider("IDA (simulação)", 0.0, 10.0, 6.0, 0.1)
+    ieg = st.slider("IEG (simulação)", 0.0, 10.0, 6.0, 0.1)
+    ips = st.slider("IPS (simulação)", 0.0, 10.0, 6.0, 0.1)
+    sim_ipv = 0.4 * ida + 0.35 * ieg + 0.25 * ips
+    st.metric("IPV simulado (proxy explicativa)", f"{sim_ipv:.2f}")
+
+
+def render_q8_multidim(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 8: Multidimensionalidade dos Indicadores")
+    st.caption("Quais combinações de IDA + IEG + IPS + IPP elevam o INDE?")
+    df = dfs[2023]
+    cols = [c for c in ["INDE", "IDA", "IEG", "IPS", "IPP"] if c in df.columns]
+    corr = df[cols].corr(numeric_only=True)
+    st.dataframe(corr, use_container_width=True)
+
+    if set(["INDE", "IDA", "IEG", "IPS", "IPP"]).issubset(df.columns):
+        d = df[["INDE", "IDA", "IEG", "IPS", "IPP"]].dropna()
+        d["grupo"] = np.where(d["INDE"] >= d["INDE"].median(), "Alto INDE", "Baixo INDE")
+        st.dataframe(d.groupby("grupo")[["IDA", "IEG", "IPS", "IPP"]].mean().round(2), use_container_width=True)
+
+
+def render_q9_ml(model, metadata, feature_columns, numeric_cols, categorical_cols):
+    st.header("Pergunta 9: Previsão de Risco com Machine Learning")
+    st.caption("Probabilidade de risco de defasagem, classificação por threshold e explicabilidade quando aplicável.")
+
+    raw_inputs = build_input_form(feature_columns, numeric_cols, categorical_cols)
+    if not raw_inputs:
+        st.info("Preencha o formulário e clique em **Calcular risco** para ver o resultado.")
+        return
+
+    input_df = build_input_dataframe(feature_columns, raw_inputs)
+    proba_risco = float(model.predict_proba(input_df)[0, 1])
+    threshold = float(metadata.get("threshold", 0.5))
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.metric("Probabilidade de risco", f"{proba_risco * 100:.1f}%")
+        st.write("Classificação:", "Em risco de defasagem" if proba_risco >= threshold else "Sem risco identificado")
+    with col2:
+        if proba_risco >= threshold:
+            st.error("Aluno em risco de defasagem. Recomenda-se intervenção pedagógica prioritária.")
+        else:
+            st.success("Sem risco elevado identificado no momento.")
+
+    st.markdown("### Recomendações pedagógicas automáticas")
+    for rec in build_recommendations(input_df, proba_risco, threshold):
+        st.write(f"- {rec}")
+
+    st.markdown("### Explicabilidade (SHAP)")
+    shap_df = get_shap_explanation(model, input_df)
+    if shap_df.empty:
+        st.info("SHAP não disponível para este ambiente/modelo no momento.")
+    else:
+        st.dataframe(shap_df[["feature", "shap_value"]], use_container_width=True, hide_index=True)
+
+
+def render_q10_efetividade(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 10: Efetividade do Programa")
+    st.caption("Os indicadores mostram melhora consistente ao longo do ciclo e das fases?")
+
+    frames = []
+    for ano, df in dfs.items():
+        if "Fase_Ideal" in df.columns and "INDE" in df.columns:
+            tmp = df.groupby("Fase_Ideal", dropna=False)["INDE"].mean().reset_index()
+            tmp["Ano"] = ano
+            frames.append(tmp)
+    if frames:
+        allf = pd.concat(frames, ignore_index=True)
+        st.dataframe(allf.pivot_table(index="Fase_Ideal", columns="Ano", values="INDE"), use_container_width=True)
+
+    inde_medias = pd.DataFrame([{"Ano": ano, "INDE_medio": df["INDE"].mean()} for ano, df in dfs.items()])
+    st.line_chart(inde_medias.set_index("Ano"))
+
+
+def render_q11_insights(dfs: Dict[int, pd.DataFrame]):
+    st.header("Pergunta 11: Insights e Criatividade")
+    st.caption("Cruzamentos adicionais para apoiar decisões estratégicas.")
+
+    df24 = dfs[2024]
+    if "Instituição_de_ensino" in df24.columns and "INDE" in df24.columns:
+        st.markdown("### INDE médio por tipo de instituição (2024)")
+        inst = df24.groupby("Instituição_de_ensino")["INDE"].mean().sort_values(ascending=False)
+        st.bar_chart(inst)
+
+    text_cols = [c for c in ["Destaque_IEG", "Destaque_IDA", "Destaque_IPV"] if c in df24.columns]
+    if text_cols:
+        st.markdown("### Frequência de preenchimento dos destaques (2024)")
+        freq = {c: int(df24[c].notna().sum()) for c in text_cols}
+        st.bar_chart(pd.Series(freq))
+
+
 def main():
     st.set_page_config(
         page_title="Risco de defasagem - Passos Mágicos",
@@ -376,6 +608,25 @@ def main():
             "- Use em conjunto com a avaliação da equipe pedagógica."
         )
         st.markdown("---")
+        nav = st.radio(
+            "Escolha uma Análise",
+            [
+                "Visão Geral",
+                "Predição (Analisar aluno)",
+                "Pergunta 1: Adequação do nível (IAN)",
+                "Pergunta 2: Desempenho acadêmico (IDA)",
+                "Pergunta 3: Engajamento nas atividades (IEG)",
+                "Pergunta 4: Autoavaliação (IAA)",
+                "Pergunta 5: Aspectos Psicossociais (IPS)",
+                "Pergunta 6: Aspectos Psicopedagógicos (IPP)",
+                "Pergunta 7: Ponto de Virada (IPV)",
+                "Pergunta 8: Multidimensionalidade dos Indicadores",
+                "Pergunta 9: Previsão de Risco com Machine Learning",
+                "Pergunta 10: Efetividade do Programa",
+                "Pergunta 11: Insights e Criatividade",
+            ],
+        )
+        st.markdown("---")
         st.caption(
             "Ferramenta desenvolvida no Datathon Passos Mágicos (2022–2024)."
         )
@@ -400,93 +651,39 @@ def main():
         )
         st.stop()
 
-    # Card do formulário principal
-    st.markdown(
-        """
-        <div style="padding: 1.25rem 1.5rem; border-radius: 0.75rem;
-                    border: 1px solid rgba(148,163,184,0.25);
-                    background: rgba(15,23,42,0.85); margin-bottom: 1rem;">
-        """,
-        unsafe_allow_html=True,
-    )
-    raw_inputs = build_input_form(feature_columns, numeric_cols, categorical_cols)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if not raw_inputs:
-        st.info("Preencha o formulário e clique em **Calcular risco** para ver o resultado.")
-        return
-
-    input_df = build_input_dataframe(feature_columns, raw_inputs)
-
     try:
-        proba_risco = float(model.predict_proba(input_df)[0, 1])
+        base_raw = load_base_dados()
+        dfs = prepare_analytics_data(base_raw)
     except Exception as e:
-        st.error(f"Ocorreu um erro ao calcular a probabilidade de risco: {e}")
-        return
+        st.error(f"Erro ao carregar bases analíticas: {e}")
+        st.stop()
 
-    threshold = float(metadata.get("threshold", 0.5))
-
-    # Card de resultado
-    st.markdown(
-        """
-        <div style="padding: 1.25rem 1.5rem; border-radius: 0.75rem;
-                    border: 1px solid rgba(148,163,184,0.25);
-                    background: rgba(15,23,42,0.85); margin-top: 1rem;">
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("### Resultado da predição")
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric(
-            label="Probabilidade estimada de risco",
-            value=f"{proba_risco * 100:.1f}%",
-        )
-        st.write(
-            f"Classificação: {'Em risco de defasagem' if proba_risco >= threshold else 'Sem risco identificado'}"
-        )
-        if "IDA_2023" in input_df.columns and not pd.isna(input_df.at[0, "IDA_2023"]):
-            st.caption(f"IDA 2023 utilizado: {input_df.at[0, 'IDA_2023']:.2f}")
-
-    with col2:
-        if proba_risco >= threshold:
-            st.error(
-                "Aluno classificado **em risco de defasagem** pelo modelo.\n\n"
-                "- Considere aprofundar a avaliação pedagógica.\n"
-                "- Revise o histórico de INDE, IEG, IPS e IPP.\n"
-                "- Planeje intervenções e acompanhamento individualizado."
-            )
-        else:
-            st.success(
-                "O modelo **não identificou risco elevado de defasagem**.\n\n"
-                "Mantenha o acompanhamento regular e monitore possíveis "
-                "mudanças em engajamento, desempenho e indicadores socioemocionais."
-            )
-
-    st.markdown("### Recomendações pedagógicas automáticas")
-    for rec in build_recommendations(input_df, proba_risco, threshold):
-        st.write(f"- {rec}")
-
-    st.markdown("### Explicabilidade (SHAP)")
-    shap_df = get_shap_explanation(model, input_df)
-    if shap_df.empty:
-        st.info(
-            "SHAP não disponível para este ambiente/modelo no momento "
-            "(recurso opcional, exibido quando aplicável)."
-        )
-    else:
-        st.caption("Top variáveis com maior impacto local na predição.")
-        st.dataframe(shap_df[["feature", "shap_value"]], use_container_width=True, hide_index=True)
-
-    st.caption(
-        "A classificação é feita apenas comparando a probabilidade estimada "
-        "com o threshold definido no treinamento do modelo. Nenhum ajuste "
-        "adicional é realizado nesta aplicação."
-    )
-
-    st.markdown("</div>", unsafe_allow_html=True)
+    if nav == "Visão Geral":
+        render_visao_geral(dfs)
+    elif nav == "Predição (Analisar aluno)":
+        render_q9_ml(model, metadata, feature_columns, numeric_cols, categorical_cols)
+    elif nav == "Pergunta 1: Adequação do nível (IAN)":
+        render_q1_ian(dfs)
+    elif nav == "Pergunta 2: Desempenho acadêmico (IDA)":
+        render_q2_ida(dfs)
+    elif nav == "Pergunta 3: Engajamento nas atividades (IEG)":
+        render_q3_ieg(dfs)
+    elif nav == "Pergunta 4: Autoavaliação (IAA)":
+        render_q4_iaa(dfs)
+    elif nav == "Pergunta 5: Aspectos Psicossociais (IPS)":
+        render_q5_ips(dfs)
+    elif nav == "Pergunta 6: Aspectos Psicopedagógicos (IPP)":
+        render_q6_ipp(dfs)
+    elif nav == "Pergunta 7: Ponto de Virada (IPV)":
+        render_q7_ipv(dfs)
+    elif nav == "Pergunta 8: Multidimensionalidade dos Indicadores":
+        render_q8_multidim(dfs)
+    elif nav == "Pergunta 9: Previsão de Risco com Machine Learning":
+        render_q9_ml(model, metadata, feature_columns, numeric_cols, categorical_cols)
+    elif nav == "Pergunta 10: Efetividade do Programa":
+        render_q10_efetividade(dfs)
+    elif nav == "Pergunta 11: Insights e Criatividade":
+        render_q11_insights(dfs)
 
 
 if __name__ == "__main__":
