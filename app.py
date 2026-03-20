@@ -138,7 +138,7 @@ def build_input_form(
                     label=label,
                     value=None,
                     step=0.01,
-                    format="%.4f",
+                    format="%.1f",
                     key=f"num_{col}",
                 )
             elif col in categorical_cols:
@@ -169,7 +169,7 @@ def build_input_form(
                         label=label,
                         value=None,
                         step=0.01,
-                        format="%.4f",
+                        format="%.1f",
                         key=f"num_{col}",
                     )
                 elif col in categorical_cols:
@@ -188,7 +188,7 @@ def build_input_form(
                         label=label,
                         value=None,
                         step=0.01,
-                        format="%.4f",
+                        format="%.1f",
                         key=f"num_{col}",
                     )
                 elif col in categorical_cols:
