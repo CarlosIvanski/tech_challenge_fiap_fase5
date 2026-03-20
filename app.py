@@ -373,6 +373,10 @@ def render_q1_ian(dfs: Dict[int, pd.DataFrame]):
         dist = faixa.value_counts().reindex(labels)
         st.bar_chart(dist)
         st.write("Distribuição de defasagem (IAN) em 2024.")
+    st.success(
+        "Insight estratégico: priorizar alunos nas faixas de defasagem severa e moderada com "
+        "planos de recomposição de curto prazo e monitoramento quinzenal."
+    )
 
 
 def render_q2_ida(dfs: Dict[int, pd.DataFrame]):
@@ -385,6 +389,10 @@ def render_q2_ida(dfs: Dict[int, pd.DataFrame]):
     evol = pd.DataFrame(data).set_index("Ano")
     st.line_chart(evol)
     st.dataframe(pd.DataFrame(data), use_container_width=True)
+    st.success(
+        "Insight estratégico: variações de IDA entre anos indicam necessidade de metas por fase; "
+        "fases com menor média devem receber reforço pedagógico focalizado."
+    )
 
 
 def render_q3_ieg(dfs: Dict[int, pd.DataFrame]):
@@ -401,6 +409,10 @@ def render_q3_ieg(dfs: Dict[int, pd.DataFrame]):
         st.scatter_chart(df[["IEG", "IDA"]].dropna(), x="IEG", y="IDA")
     if all(c in df.columns for c in ["IEG", "IPV"]):
         st.scatter_chart(df[["IEG", "IPV"]].dropna(), x="IEG", y="IPV")
+    st.success(
+        "Insight estratégico: engajamento baixo tende a reduzir desempenho e virada; "
+        "ações de presença, rotina de estudos e acompanhamento de participação devem ser antecipadas."
+    )
 
 
 def render_q4_iaa(dfs: Dict[int, pd.DataFrame]):
@@ -411,6 +423,10 @@ def render_q4_iaa(dfs: Dict[int, pd.DataFrame]):
         st.scatter_chart(df[["IAA", "IDA"]].dropna(), x="IAA", y="IDA")
         st.scatter_chart(df[["IAA", "IEG"]].dropna(), x="IAA", y="IEG")
         st.write("Regra simples: distância entre IAA e IDA indica potencial super/subestimação.")
+    st.success(
+        "Insight estratégico: alunos com grande distância entre autoavaliação e desempenho real "
+        "precisam de devolutiva estruturada e plano socioemocional individual."
+    )
 
 
 def render_q5_ips(dfs: Dict[int, pd.DataFrame]):
@@ -423,6 +439,10 @@ def render_q5_ips(dfs: Dict[int, pd.DataFrame]):
     m["delta_INDE_24_23"] = m["INDE_2024"] - m["INDE_2023"]
     st.scatter_chart(m[["IPS_2023", "delta_INDE_24_23"]].dropna(), x="IPS_2023", y="delta_INDE_24_23")
     st.write(f"Correlação IPS_2023 vs ΔINDE(24-23): {m[['IPS_2023','delta_INDE_24_23']].corr().iloc[0,1]:.3f}")
+    st.success(
+        "Insight estratégico: sinais psicossociais mais frágeis devem acionar protocolo preventivo "
+        "com psicologia e coordenação antes da queda acadêmica se consolidar."
+    )
 
 
 def render_q6_ipp(dfs: Dict[int, pd.DataFrame]):
@@ -432,6 +452,10 @@ def render_q6_ipp(dfs: Dict[int, pd.DataFrame]):
     if all(c in df.columns for c in ["IPP", "IAN"]):
         st.scatter_chart(df[["IPP", "IAN"]].dropna(), x="IPP", y="IAN")
         st.write(f"Correlação IPP vs IAN (2023): {df[['IPP','IAN']].corr().iloc[0,1]:.3f}")
+    st.success(
+        "Insight estratégico: quando IPP e IAN convergem, há maior confiança para intervenção rápida; "
+        "quando divergem, recomenda-se reavaliação multidisciplinar."
+    )
 
 
 def render_q7_ipv(dfs: Dict[int, pd.DataFrame]):
@@ -448,6 +472,10 @@ def render_q7_ipv(dfs: Dict[int, pd.DataFrame]):
     ips = st.slider("IPS (simulação)", 0.0, 10.0, 6.0, 0.1)
     sim_ipv = 0.4 * ida + 0.35 * ieg + 0.25 * ips
     st.metric("IPV simulado (proxy explicativa)", f"{sim_ipv:.2f}")
+    st.success(
+        "Insight estratégico: elevar IDA e IEG em alunos limítrofes tende a gerar maior efeito no IPV; "
+        "priorize metas curtas e mensuráveis por ciclo."
+    )
 
 
 def render_q8_multidim(dfs: Dict[int, pd.DataFrame]):
@@ -462,6 +490,10 @@ def render_q8_multidim(dfs: Dict[int, pd.DataFrame]):
         d = df[["INDE", "IDA", "IEG", "IPS", "IPP"]].dropna()
         d["grupo"] = np.where(d["INDE"] >= d["INDE"].median(), "Alto INDE", "Baixo INDE")
         st.dataframe(d.groupby("grupo")[["IDA", "IEG", "IPS", "IPP"]].mean().round(2), use_container_width=True)
+    st.success(
+        "Insight estratégico: o ganho de INDE é multidimensional; combinar reforço acadêmico com "
+        "engajamento e apoio psicossocial aumenta a efetividade da intervenção."
+    )
 
 
 def render_q9_ml(model, metadata, feature_columns, numeric_cols, categorical_cols):
@@ -497,6 +529,10 @@ def render_q9_ml(model, metadata, feature_columns, numeric_cols, categorical_col
         st.info("SHAP não disponível para este ambiente/modelo no momento.")
     else:
         st.dataframe(shap_df[["feature", "shap_value"]], use_container_width=True, hide_index=True)
+    st.success(
+        "Insight estratégico: usar a probabilidade de risco para montar fila de priorização e "
+        "definir intensidade de acompanhamento por aluno."
+    )
 
 
 def render_q10_efetividade(dfs: Dict[int, pd.DataFrame]):
@@ -515,6 +551,10 @@ def render_q10_efetividade(dfs: Dict[int, pd.DataFrame]):
 
     inde_medias = pd.DataFrame([{"Ano": ano, "INDE_medio": df["INDE"].mean()} for ano, df in dfs.items()])
     st.line_chart(inde_medias.set_index("Ano"))
+    st.success(
+        "Insight estratégico: a evolução por fase permite comprovar impacto e identificar "
+        "onde concentrar investimento pedagógico para aumentar retorno do programa."
+    )
 
 
 def render_q11_insights(dfs: Dict[int, pd.DataFrame]):
@@ -532,6 +572,10 @@ def render_q11_insights(dfs: Dict[int, pd.DataFrame]):
         st.markdown("### Frequência de preenchimento dos destaques (2024)")
         freq = {c: int(df24[c].notna().sum()) for c in text_cols}
         st.bar_chart(pd.Series(freq))
+    st.success(
+        "Insight estratégico: cruzamentos adicionais ajudam a direcionar ações por território, "
+        "tipo de escola e perfil de aluno, melhorando alocação de recursos."
+    )
 
 
 def main():
@@ -612,7 +656,6 @@ def main():
             "Escolha uma Análise",
             [
                 "Visão Geral",
-                "Predição (Analisar aluno)",
                 "Pergunta 1: Adequação do nível (IAN)",
                 "Pergunta 2: Desempenho acadêmico (IDA)",
                 "Pergunta 3: Engajamento nas atividades (IEG)",
@@ -660,8 +703,6 @@ def main():
 
     if nav == "Visão Geral":
         render_visao_geral(dfs)
-    elif nav == "Predição (Analisar aluno)":
-        render_q9_ml(model, metadata, feature_columns, numeric_cols, categorical_cols)
     elif nav == "Pergunta 1: Adequação do nível (IAN)":
         render_q1_ian(dfs)
     elif nav == "Pergunta 2: Desempenho acadêmico (IDA)":
